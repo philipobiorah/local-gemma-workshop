@@ -12,7 +12,12 @@ Agents built with [Google ADK](https://google.github.io/adk-docs/) that run on l
 
 ## Document Q&A
 
+
 Add PDF, Word, text or Markdown files, ask a question, and get an answer backed by quotations that are checked against the source text. Everything runs on your computer: the documents, the search index and both models.
+
+sample document[COMPARATIVE EVALUATION OF TRADITIONAL,
+LEXICON-BASED, AND TRANSFORMER MODELS FOR
+SENTIMENT CLASSIFICATION](https://proceedings.informingscience.org/InSITE2025/InSITE2025Art23Obiorah11729.pdf): 
 
 There are two ways to use the same agent:
 
