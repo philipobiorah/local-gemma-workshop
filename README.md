@@ -1,278 +1,170 @@
 # Local Gemma Workshop
 
-Build a general-purpose AI assistant with **Gemma 4**, **Ollama** and **Google Agent Development Kit (ADK)**, then extend it with a web-search tool.
+Agents built with [Google ADK](https://google.github.io/adk-docs/) that run on local Gemma models through [Ollama](https://ollama.com). No cloud API keys.
 
-Prepared by **Dr Philip Obiorah** for *Deploying LLMs Locally with Gemma*, part of **Sovereign AI: Building AI You Can Trust**.
+| Folder | What it is |
+| --- | --- |
+| `basic_agent/` | Workshop example agent |
+| `basic_agent_with_search/` | Workshop example agent with search |
+| `document_qa/` | **Document Q&A**: ask questions about your own files and get answers with verified quotations (documented below) |
 
-## What is included?
+---
 
-| Example | Purpose | Data boundary |
-| --- | --- | --- |
-| `basic_agent` | A concise general help assistant | Model inference runs locally through Ollama |
-| `basic_agent_with_search` | A general assistant that can retrieve Google search snippets | Gemma inference is local; search queries are sent to Serper |
+## Document Q&A
 
-The search example uses a **custom Python function**, `search_google`, that calls [Serper](https://serper.dev/), a third-party Google search-results service. It does **not** use ADK's Gemini-only built-in Google Search tool. No Gemini API key is required.
+Add PDF, Word, text or Markdown files, ask a question, and get an answer backed by quotations that are checked against the source text. Everything runs on your computer: the documents, the search index and both models.
 
-**Document Q&A / RAG is not included in this repository yet.** Neither example indexes uploaded documents.
-
-## What you will learn
-
-- Run Gemma 4 on your own computer.
-- Connect ADK to Ollama through LiteLLM.
-- Define an agent's model, instructions and purpose.
-- Register a Python function as an agent tool.
-- Inspect the difference between model responses and tool execution.
-- Understand the boundary between local AI and online services.
-
-## Why local AI matters
-
-Local inference gives you control over the model runtime and where inference requests are processed. It can support offline use and reduce dependence on cloud inference providers.
-
-Local deployment alone does not guarantee accurate answers, secure storage or complete AI sovereignty. The search-enabled example introduces an external dependency: its generated search queries leave your computer.
-
-There is no cloud inference API fee for these local Gemma examples. Hardware, electricity and maintenance still have costs, and Serper has its own usage limits and pricing.
-
-## Before you begin
-
-Install:
-
-1. **Python 3.11 or newer:** [python.org/downloads](https://www.python.org/downloads/). On Windows, select **Add Python to PATH**.
-2. **Git:** [git-scm.com/downloads](https://git-scm.com/downloads/).
-3. **Ollama:** [ollama.com/download](https://ollama.com/download).
-4. A text editor and browser.
-
-On Debian/Ubuntu, install Python, its virtual-environment support and Git through your package manager:
+There are two ways to use the same agent:
 
 ```bash
-sudo apt update
-sudo apt install python3 python3-venv python3-pip git
+python app.py     # custom web page at http://127.0.0.1:8765
+adk web           # ADK's built-in chat window; pick "document_qa" in the dropdown
 ```
 
-Use the official Ollama instructions for your operating system. Launch the Ollama desktop application on Windows/macOS. On Linux, ensure the Ollama service is running; if needed, run `ollama serve` in a separate terminal.
+Both read the same `document_qa/documents/` folder and the same index, so a file added in one shows up in the other.
 
-Initial software, package and model downloads require internet access. Performance depends on your hardware; test your machine before a live demonstration.
+### How it works
 
-## 1. Clone the repository
+```
+document_qa/documents/   your files (the single source of truth)
+        │  every question starts by syncing this folder
+        ▼
+split into ~1000-character chunks → embedded with embeddinggemma → saved in SQLite
+        │
+question ──► search in code (top 5 chunks + the opening chunk of each document)
+        │
+        ▼
+Gemma (via ADK) reads the question and passages, replies with JSON: answer + quotations
+        │
+        ▼
+every quotation is checked: it must be an exact piece of a retrieved passage
+        │
+        ▼
+answer shown with only the verified quotations
+```
+
+Two design choices are worth knowing:
+
+- **Search happens in code, not by the model.** Small local models often skip optional tool calls, so the first search is forced and the passages are placed in the prompt. The model keeps one optional extra search tool for when the passages are not enough.
+- **Unverified answers are never shown.** If none of the model's quotations can be found in the retrieved passages, you get a notice instead of the answer.
+
+### Requirements
+
+- Python 3.10 or newer (tested on 3.13)
+- [Ollama](https://ollama.com) installed and running
+- Enough memory for a small Gemma model (`gemma4:e2b`) plus the embedding model
+
+### Setup
+
+From the workshop folder:
 
 ```bash
-git clone https://github.com/philipobiorah/local-gemma-workshop.git
-cd local-gemma-workshop
-```
+# 1. Create and activate a virtual environment (skip if .venv already exists)
+python -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
 
-## 2. Create a virtual environment
-
-### macOS / Linux
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-### Windows PowerShell
-
-```powershell
-py -3 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-Once activated, your terminal should show `(.venv)`.
-
-If PowerShell prevents activation, you can use the environment's executables directly, such as `.\.venv\Scripts\python.exe` and `.\.venv\Scripts\adk.exe`.
-
-## 3. Install dependencies
-
-With the environment activated:
-
-```bash
+# 2. Install the Python packages into that environment
 python -m pip install -r requirments.txt
-adk --version
-```
 
-**The filename is currently spelled `requirments.txt` in this repository.** Use that exact spelling.
-
-It installs Google ADK, Google Gen AI SDK and LiteLLM. Installing the Google SDK does not mean these agents use cloud Gemini: both agents select Ollama-hosted Gemma.
-
-## 4. Download and check Gemma
-
-With Ollama running:
-
-```bash
-ollama --version
+# 3. Download the two models (one-time, needs internet)
 ollama pull gemma4:e2b
-ollama list
-ollama run gemma4:e2b
+ollama pull embeddinggemma:300m
 ```
 
-Ask:
+`requirments.txt` should contain:
 
-> Explain what an AI agent is using an everyday example.
+```
+google-adk==2.11.0
+litellm==1.105.0
+pypdf==6.10.0
+python-docx==1.2.0
+```
 
-Enter `/bye` to exit. Keep Ollama running for the ADK examples.
+Keep the virtual environment active whenever you run `python app.py` or `adk web`, so both use the same packages.
 
-The default model is `gemma4:e2b`. Both agents use the `ollama_chat` LiteLLM provider and an 8,192-token context setting.
+### Configuration
 
-## 5. Configure the local runtime
+Settings go in the `.env` file in the workshop folder. Both `python app.py` and `adk web` read it.
 
-Set these variables **before starting ADK**, so they are available when LiteLLM is imported.
+| Variable | Default | Allowed values |
+| --- | --- | --- |
+| `GEMMA_MODEL` | `gemma4:e2b` | `gemma4:e2b`, `gemma4:e4b` (larger, better at following instructions; run `ollama pull gemma4:e4b` first) |
 
-### macOS / Linux
+### Adding and removing documents
+
+Supported files: **PDF, DOCX, TXT, Markdown**.
+
+| Action | Custom page (`python app.py`) | `adk web` |
+| --- | --- | --- |
+| Add | Choose files → **Upload and index** | Attach a file in the chat message |
+| Remove | **Remove** button | Delete the file from the folder |
+
+In every case the file lives in `document_qa/documents/`. You can also copy files into that folder by hand; the next question or page refresh picks them up. Deleting a file removes it and its chunks from the index.
+
+Limits: 10 MiB per file, 200 PDF pages, 500,000 characters of text per document, 2,000 chunks in total. Scanned PDFs have no text layer and are rejected, because there is no OCR step. Identical files count once.
+
+### Reading an answer
+
+- **Verified quotations** are exact excerpts from your documents, with the file name and page.
+- *"Some generated citations failed verification"* means the model also produced a quotation that is not in the passages. Treat the answer with caution and check the sources.
+- *"I could not produce an answer with verified source quotations"* means none of its quotations checked out. Rephrase the question, or try `gemma4:e4b`.
+- *"I could not find that in the uploaded documents"* is a genuine "not found".
+
+Questions that name content ("What does the paper say about debugging?") work better than vague ones. Questions about the title or author work too, because the opening chunk of each document is always included.
+
+### Project layout
+
+```
+local-gemma-workshop/
+├── app.py                   web server for the custom page (python app.py)
+├── static/                  the custom page: index.html, app.js, style.css
+├── document_qa/             the agent; adk web finds it here
+│   ├── agent.py             root_agent, system prompt and model settings
+│   ├── callbacks.py         before/after each model call: attachments, folder sync, search, quote check
+│   ├── tools.py             the optional extra search tool
+│   ├── store.py             documents folder → chunks → embeddings → SQLite, and search
+│   ├── grounding.py         parsing the model's reply and verifying quotations
+│   ├── documents/           put your files here
+│   └── data/                the search index (created automatically)
+├── tests/                   offline tests
+├── .env                     settings
+└── requirments.txt          Python packages
+```
+
+`app.py` contains no agent logic. It imports the agent from `document_qa`, so both entry points behave the same.
+
+### Tests
+
+The tests use a fake embedder and a fake chat model, so they need neither Ollama nor the models:
 
 ```bash
-export OLLAMA_API_BASE="http://127.0.0.1:11434"
-export GEMMA_MODEL="gemma4:e2b"
-export LITELLM_LOCAL_MODEL_COST_MAP="True"
-export LITELLM_MODE="PRODUCTION"
-export NO_PROXY="127.0.0.1,localhost"
+python -m pip install pytest
+python -m pytest tests -q
 ```
 
-### Windows PowerShell
+### Privacy and safety
 
-```powershell
-$env:OLLAMA_API_BASE="http://127.0.0.1:11434"
-$env:GEMMA_MODEL="gemma4:e2b"
-$env:LITELLM_LOCAL_MODEL_COST_MAP="True"
-$env:LITELLM_MODE="PRODUCTION"
-$env:NO_PROXY="127.0.0.1,localhost"
-```
+- Documents, vectors and answers stay on your computer. `python app.py` listens on `127.0.0.1` only and rejects requests from other hosts or without its custom header.
+- Document text is treated as untrusted. The prompt tells the model to ignore instructions inside documents, and the quotation check means a document cannot make the app show text that is not in the documents.
+- Small models can still be wrong. Always check the quotations.
+- Add these lines to `.gitignore` to keep private documents and the index out of git:
 
-These settings select the local endpoint and use LiteLLM's packaged model-cost map instead of fetching it remotely. They do not constitute a firewall or a complete dependency-network audit.
+  ```
+  document_qa/data/
+  document_qa/documents/*
+  !document_qa/documents/.gitkeep
+  .adk/
+  ```
 
-Reapply the variables when opening a new terminal.
+### Troubleshooting
 
-## 6. Run the basic assistant
-
-From the repository root:
-
-```bash
-adk web --host 127.0.0.1 --port 8000
-```
-
-Open **http://127.0.0.1:8000** and select **basic_agent**.
-
-Try:
-
-- “Explain machine learning to a beginner.”
-- “Help me write a polite meeting invitation.”
-- “Suggest a four-week plan for learning Python.”
-
-This agent has no registered tools. It answers using its model knowledge and conversation context, so it cannot verify current information through web search.
-
-To use the terminal interface instead:
-
-```bash
-adk run basic_agent
-```
-
-Press **Ctrl+C** to stop the running interface.
-
-## 7. Enable the search assistant
-
-### Obtain a search key
-
-Create an account at [Serper](https://serper.dev/) and obtain an API key. Check its current limits and pricing.
-
-Set the key in the terminal where you will launch ADK:
-
-macOS / Linux:
-
-```bash
-export SERPER_API_KEY="your_actual_key"
-```
-
-Windows PowerShell:
-
-```powershell
-$env:SERPER_API_KEY="your_actual_key"
-```
-
-For a reusable local configuration, ADK can load a `basic_agent_with_search/.env` file containing:
-
-```dotenv
-SERPER_API_KEY=your_actual_key
-```
-
-The repository's `.gitignore` excludes `.env`. Never commit credentials.
-
-### Start and test
-
-```bash
-adk web --host 127.0.0.1 --port 8000
-```
-
-Select **basic_agent_with_search** and ask:
-
-> Search Google for the official Google ADK documentation and give me its URL.
-
-Inspect the ADK events to confirm that **search_google** was called. A response containing a URL does not, by itself, prove tool execution.
-
-The tool returns up to five organic result titles, URLs and snippets. It does not download or read the full webpages.
-
-If the key is missing, invalid or the service is unavailable, the function returns an error for the agent to handle. Tool use is requested through the agent's instructions; it is not guaranteed on every question.
-
-## How the examples work
-
-### Basic assistant
-
-The ADK interface sends your question to the agent. LiteLLM connects to local Ollama, which runs Gemma and returns its response.
-
-### Assistant with search
-
-Gemma can request `search_google(query)`. ADK executes the Python function, which sends that query to Serper. The returned snippets become context for Gemma's answer.
-
-Gemma inference remains local, but the search step requires internet. Do not describe the search-enabled example as fully offline.
-
-## Reading the code
-
-| File | Responsibility |
+| Message or symptom | Fix |
 | --- | --- |
-| `basic_agent/agent.py` | Local model configuration and basic assistant |
-| `basic_agent/__init__.py` | Exposes the root agent |
-| `basic_agent_with_search/agent.py` | Instructions and search-tool registration |
-| `basic_agent_with_search/search_tools.py` | Serper request, result formatting and error handling |
-| `basic_agent_with_search/__init__.py` | Exposes the search-enabled root agent |
-| `requirments.txt` | Python dependencies |
-| `.gitignore` | Excludes the environment, ADK state, Python caches and `.env` |
-
-## Troubleshooting
-
-| Symptom | What to check |
-| --- | --- |
-| `adk` command not found | Activate `.venv` and install dependencies |
-| Ollama connection refused | Launch Ollama or check its service |
-| Model not found | Run `ollama pull gemma4:e2b` |
-| Agent missing from the selector | Run `adk web` from the repository root |
-| Port 8000 is occupied | Stop the earlier server, or choose another port |
-| `SERPER_API_KEY is not configured` | Set the key before launching ADK, then restart |
-| Search returns HTTP 401/403 | Check the Serper key and account access |
-| Search returns HTTP 429 | Check the provider's usage limits |
-| Agent answers without searching | Explicitly request search and inspect the event trace |
-| Slow responses | Allow time for loading and inference; close other demanding apps |
-
-An ADK warning about `JSON_SCHEMA_FOR_FUNC_DECL` being experimental is not, by itself, an application failure. Look for subsequent errors if a request fails.
-
-To try the larger E4B variant, download `gemma4:e4b`, change `GEMMA_MODEL` to that tag, and restart ADK. Check available memory first.
-
-## Privacy and limitations
-
-- Local inference does not make model answers reliable or current.
-- Search queries are transmitted to Serper; snippets are external, untrusted content.
-- The ADK development interface may retain local conversation/session data. Review its configuration before using sensitive information.
-- Keep the development server bound to localhost; it is not an enterprise deployment.
-- This repository does not include document upload, vector indexing or a Document Q&A application.
-- Setup instructions are based on the source files; they are not a claim that live model behaviour has been validated on every operating system.
-
-## Next learning step: local Document Q&A
-
-A future extension can add local document extraction, EmbeddingGemma vectors and a SQLite index. Retrieved passages would provide evidence for Gemma's answers: **Retrieval-Augmented Generation (RAG)**.
-
-That extension can keep document processing and inference local without requiring the web-search tool.
-
-## References
-
-- [Google ADK](https://adk.dev/)
-- [ADK with Ollama](https://adk.dev/agents/models/ollama/)
-- [Ollama documentation](https://docs.ollama.com/)
-- [Gemma 4 on Ollama](https://ollama.com/library/gemma4)
-- [Serper](https://serper.dev/)
-
-Model weights and external services retain their own terms. This repository currently has no `LICENSE` file; do not infer a software license from the licenses of its dependencies.
+| `No module named 'pypdf'` (or `docx`) | `python -m pip install pypdf python-docx` in the active environment |
+| `Ollama request failed` | Start Ollama (open the app or run `ollama serve`) and check both models are pulled: `ollama list` |
+| "Models missing" under the page title | `ollama pull gemma4:e2b` and `ollama pull embeddinggemma:300m`, then refresh |
+| "No documents are indexed yet" | Add a file (see above) |
+| First question is slow | The model is loading into memory; later questions are faster while it stays loaded (5 minutes) |
+| `Embedding dimensions changed` | The embedding model changed; delete `document_qa/data/index.sqlite3` and ask again to re-index |
+| `adk web` shows the raw JSON answer first | Turn off token streaming in the `adk web` settings |
+| `adk web` does not list `document_qa` | Run it from the workshop folder (the one that contains `document_qa/`), not from inside a subfolder |
